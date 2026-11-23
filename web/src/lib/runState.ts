@@ -1,137 +1,99 @@
-// ---------------------------------------------------------------------------
-// THIS IS THE EXERCISE. See TASK 2 in README.md.
-// ---------------------------------------------------------------------------
-//
-// Everything the screen shows comes from here. Two sources feed it:
-//
-//   * a snapshot -- current state, and the stream position it reflects
-//   * a stream of events, which can arrive late, twice, or out of order
-//
-// Nothing below is implemented. The timeline renders whatever selectTracks
-// returns, so it is blank until you make it return something.
-//
-// Plain TypeScript on purpose: no React in this file, so the tests call
-// straight into it. Keep the exported signatures -- they do.
+// The state layer's public API: everything the screen shows comes from here.
+// Events are applied on arrival and merged order-free (state/attempts.ts);
+// which seqs were seen is tracked apart (state/sequence.ts), so a lost event
+// neither freezes the screen nor goes unreported.
 import type { LabEvent, Snapshot, StepError } from './types'
+import { withEvent, withSnapshotStep } from './state/attempts'
+import { isGapFrame, isLabEvent } from './state/frames'
+import type { GapFrame } from './state/frames'
+import { advanceTo, emptySequence, isNew, record } from './state/sequence'
+import type { RunState } from './state/model'
 
-export type AttemptStatus = 'dispatched' | 'running' | 'done' | 'failed'
-
-/** One occupancy of one device by one step. */
-export interface Attempt {
-  stepId: string
-  attempt: number
-  deviceId: string
-  status: AttemptStatus
-  refused: boolean
-  /** Epoch ms, or null while the instrument has not confirmed it started. */
-  startedAt: number | null
-  /** Epoch ms, or null while it is still running. Never guess this. */
-  endedAt: number | null
-  /** Why it failed, when it did. Null otherwise. */
-  error: StepError | null
-}
-
-export interface Track {
-  deviceId: string
-  attempts: Attempt[]
-}
-
-export type ConnectionStatus = 'connecting' | 'live' | 'stale' | 'gap'
-
-export interface Connection {
-  status: ConnectionStatus
-  /** Highest sequence number applied so far. */
-  lastSeq: number
-  /** Shown to the user when the status is not 'live'. */
-  note?: string
-}
-
-/** Shape freely. The selectors are the contract, not this. */
-export interface RunState {
-  runStatus: string
-  attempts: Attempt[]
-  lastSeq: number
-  connection: Connection
-}
+export type {
+  Attempt,
+  AttemptStatus,
+  Connection,
+  ConnectionStatus,
+  RunState,
+  Track,
+} from './state/model'
+export {
+  selectConnection,
+  selectFailures,
+  selectResumeFrom,
+  selectRunStatus,
+  selectTracks,
+} from './state/selectors'
+export type { ResolvedFailure } from './state/selectors'
+export type { LabEvent, Snapshot, StepError }
 
 export function createRunState(): RunState {
   return {
+    runId: null,
     runStatus: 'unknown',
-    attempts: [],
-    lastSeq: 0,
-    connection: { status: 'connecting', lastSeq: 0 },
+    statusSeq: 0,
+    attempts: {},
+    seq: emptySequence,
+    transport: 'connecting',
+    lostNote: null,
   }
 }
 
-/**
- * Fold in a snapshot.
- *
- * TODO(candidate): snap.seq says where this snapshot sits in the stream.
- * Record it, or you cannot tell which events it already accounts for.
- */
+/** Fold in a snapshot. Its seq marks which events it already accounts for. */
 export function applySnapshot(state: RunState, snap: Snapshot): RunState {
-  void snap
-  return state
+  const newer = snap.seq >= state.statusSeq
+  return {
+    ...state,
+    runId: snap.run.id,
+    runStatus: newer ? snap.run.status : state.runStatus,
+    statusSeq: Math.max(state.statusSeq, snap.seq),
+    attempts: snap.run.steps.reduce(withSnapshotStep, state.attempts),
+    seq: advanceTo(state.seq, snap.seq),
+  }
 }
 
-/**
- * Fold in one frame off the socket.
- *
- * The argument is `unknown` because not everything on the wire is a LabEvent.
- * Deciding what a frame is, and what to do with one you do not recognise, is
- * part of the job.
- *
- * TODO(candidate): implement.
- */
+/** Fold in one frame off the socket. Frames that are neither an event nor a
+ *  gap notice are ignored. */
 export function applyMessage(state: RunState, msg: unknown): RunState {
-  void msg
+  if (isGapFrame(msg)) return applyGap(state, msg)
+  if (isLabEvent(msg)) return applyEvent(state, msg)
   return state
 }
 
-/**
- * Fold in one already-typed event. applyMessage delegates here once it has
- * decided a frame is an event.
- *
- * TODO(candidate): implement.
- */
+/** Fold in one typed event. Duplicates, events the snapshot already covers,
+ *  and events from another run change nothing. */
 export function applyEvent(state: RunState, e: LabEvent): RunState {
-  void e
-  return state
+  if (state.runId !== null && e.run_id !== state.runId) return state
+  if (!isNew(state.seq, e.seq)) return state
+  const runLevel = e.type.startsWith('run.')
+  return {
+    ...state,
+    runId: e.run_id,
+    ...(e.seq > state.statusSeq && {
+      runStatus: runStatusAfter(e),
+      statusSeq: e.seq,
+    }),
+    attempts: withEvent(state.attempts, e),
+    seq: record(state.seq, e.seq, runLevel),
+  }
 }
 
-/**
- * Fold in a transport change: the socket opened, or it went away.
- *
- * TODO(candidate): a closed socket does not change what the lab is doing, but
- * it does change what this screen can honestly claim to know.
- */
+/** A closed socket does not change the lab, only what we can claim to know. */
 export function applyTransport(
   state: RunState,
   kind: 'open' | 'closed',
 ): RunState {
-  void kind
-  return state
+  return { ...state, transport: kind }
 }
 
-/** One track per device, in DEVICES order. Overlapping attempts on one track
- *  are physically impossible -- an instrument does one thing at a time. */
-export function selectTracks(state: RunState): Track[] {
-  void state
-  return []
+function applyGap(state: RunState, g: GapFrame): RunState {
+  if (g.earliest - 1 <= state.seq.last) return state // already past it
+  const lostNote = `Events ${g.from + 1}–${g.earliest - 1} were lost while disconnected. This record is incomplete.`
+  return { ...state, lostNote, seq: advanceTo(state.seq, g.earliest - 1) }
 }
 
-export function selectRunStatus(state: RunState): string {
-  return state.runStatus
+function runStatusAfter(e: LabEvent): string {
+  if (e.type === 'run.completed') return 'completed'
+  if (e.type === 'run.blocked') return 'blocked'
+  return 'running'
 }
-
-export function selectConnection(state: RunState): Connection {
-  return state.connection
-}
-
-/** What to ask the server to resume from on the next connection attempt. */
-export function selectResumeFrom(state: RunState): number {
-  void state
-  return 0
-}
-
-export type { LabEvent, Snapshot, StepError }
