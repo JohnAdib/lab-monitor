@@ -1,56 +1,22 @@
-// Provided. Wires the socket and the snapshot into your run state, and renders
-// what the selectors report. It holds no run logic of its own.
-import { useCallback, useEffect, useRef, useState } from 'react'
+// Wires the run's live state into the screen. It holds no run logic of its
+// own: hooks own the data, selectors decide what it means.
+import { useCallback, useState } from 'react'
 import { Banner } from '../components/Banner'
+import { FailurePanel } from '../components/failures/FailurePanel'
 import { Timeline } from '../pages/Timeline'
-import { createRun, fetchSnapshot, startRun } from '../lib/api'
-import { connect } from '../lib/socket'
+import { useNow } from '../hooks/useNow'
+import { useRunStream } from '../hooks/useRunStream'
+import { createRun, startRun } from '../lib/api'
 import {
-  applyMessage,
-  applySnapshot,
-  applyTransport,
-  createRunState,
   selectConnection,
-  selectResumeFrom,
   selectRunStatus,
   selectTracks,
 } from '../lib/runState'
-import type { RunState } from '../lib/runState'
 
 export function RunPage() {
-  const [state, setState] = useState<RunState>(createRunState)
   const [runId, setRunId] = useState<string | null>(null)
-  const [now, setNow] = useState(() => Date.now())
-  const stateRef = useRef(state)
-  stateRef.current = state
-
-  // The clock a running bar is drawn against.
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 250)
-    return () => clearInterval(t)
-  }, [])
-
-  useEffect(() => {
-    if (!runId) return
-    const alive = { current: true }
-    void (async () => {
-      // Snapshot first, then subscribe from where the snapshot sits. That is
-      // what selectResumeFrom is for.
-      const snap = await fetchSnapshot(runId)
-      if (!alive.current) return
-      setState((s) => applySnapshot(s, snap))
-    })()
-    const close = connect(runId, {
-      resumeFrom: () => selectResumeFrom(stateRef.current),
-      onMessage: (msg) => setState((s) => applyMessage(s, msg)),
-      onOpen: () => setState((s) => applyTransport(s, 'open')),
-      onClose: () => setState((s) => applyTransport(s, 'closed')),
-    })
-    return () => {
-      alive.current = false
-      close()
-    }
-  }, [runId])
+  const state = useRunStream(runId)
+  const now = useNow(250) // the clock a running bar is drawn against
 
   const onStart = useCallback(async () => {
     const id = await createRun()
@@ -86,6 +52,8 @@ export function RunPage() {
       <Banner connection={selectConnection(state)} />
 
       <Timeline tracks={tracks} now={now} t0={t0} />
+
+      {runId && <FailurePanel state={state} runId={runId} />}
     </div>
   )
 }
