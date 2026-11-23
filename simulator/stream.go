@@ -2,89 +2,83 @@ package main
 
 import "sync"
 
-// Stream carries run events to connected browsers.
-//
-// ---------------------------------------------------------------------------
-// THIS IS THE EXERCISE. See TASK 1 in README.md.
-// ---------------------------------------------------------------------------
-//
-// What it does today: hands each event to whoever is connected at that instant.
-// Nothing else. No sequence number, no history, nothing to come back to.
-//
-// So a browser that loses its connection for ten seconds loses ten seconds of
-// the run permanently, and cannot tell that it did. It also cannot tell a
-// duplicate from a new event, or notice that two arrived in the wrong order.
-//
-// Your job is to make the stream resumable:
-//
-//   - give every event a monotonic Seq, assigned here
-//   - keep the recent past in a bounded buffer
-//   - serve Subscribe(resumeFrom) from that buffer, then go live
-//   - report gap == true when resumeFrom is older than anything you still hold
-//   - return a real Watermark so a snapshot can say where it sits in the stream
-//
-// Add whatever else you need. Keep the four signatures below -- the tests call
-// them -- but nothing stops you adding more.
-//
+// minLiveBuffer is the smallest per-subscriber queue. A subscriber that falls
+// further behind than max(minLiveBuffer, replay size) is disconnected.
+const minLiveBuffer = 256
 
+// Stream carries one run's events to connected browsers.
+//
+// Every event gets a monotonic Seq and is kept in a bounded replay buffer, so a
+// client that reconnects with resume_from=N is sent what it missed before it
+// goes live. When the buffer no longer holds N+1, Subscribe reports a gap.
 type Stream struct {
-	mu     sync.Mutex
-	subs   map[int]chan Event
-	nextID int
+	mu      sync.Mutex
+	seq     uint64
+	buf     *replayBuffer
+	subs    map[int]chan Event
+	nextID  int
+	liveCap int
 }
 
 func NewStream(bufSize int) *Stream {
-	// TODO(candidate): bufSize is the replay buffer capacity, and nothing reads
-	// it yet. Deciding what happens when it fills is part of the exercise.
-	_ = bufSize
-	return &Stream{subs: map[int]chan Event{}}
+	return &Stream{
+		buf:     newReplayBuffer(bufSize),
+		subs:    map[int]chan Event{},
+		liveCap: max(bufSize, minLiveBuffer),
+	}
 }
 
-// Publish delivers an event to every current subscriber.
-//
-// TODO(candidate): assign e.Seq here, and record the event so it can be
-// replayed. Note who else may be inside this type at the same moment.
+// Publish numbers e, records it for replay, and delivers it to every
+// subscriber. It never blocks: a subscriber whose queue is full is
+// disconnected, so it reconnects and resumes instead of silently missing events.
 func (s *Stream) Publish(e Event) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, ch := range s.subs {
+	s.seq++
+	e.Seq = s.seq
+	s.buf.push(e)
+	for id, ch := range s.subs {
 		select {
 		case ch <- e:
-		default: // subscriber is not keeping up; drop rather than stall the run
+		default:
+			s.removeLocked(id)
 		}
 	}
 }
 
-// Subscribe registers a listener.
+// Subscribe registers a listener that resumes after resumeFrom.
 //
-// backlog is written to the socket before ch is drained. gap reports that the
-// requested position can no longer be served.
-//
-// TODO(candidate): backlog and gap are always empty and false. Both are yours.
+// The backlog is copied and the listener registered under one lock, so no event
+// can fall between the two. gap reports that events after resumeFrom were
+// evicted; the backlog then starts at the oldest event still held.
 func (s *Stream) Subscribe(resumeFrom uint64) (backlog []Event, ch <-chan Event, gap bool, cancel func()) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	_ = resumeFrom
-
 	id := s.nextID
 	s.nextID++
-	c := make(chan Event, 256)
+	c := make(chan Event, s.liveCap)
 	s.subs[id] = c
 
-	return nil, c, false, func() {
+	return s.buf.since(resumeFrom), c, s.buf.lostAfter(resumeFrom), func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		delete(s.subs, id)
-		close(c)
+		s.removeLocked(id)
 	}
 }
 
-// Watermark is the sequence number of the most recent published event. The
-// snapshot handler puts it in its response so a client knows where the
-// snapshot sits relative to the stream.
-//
-// TODO(candidate): always 0 today, which tells a client nothing.
+// Watermark is the Seq of the most recent published event, 0 before any.
 func (s *Stream) Watermark() uint64 {
-	return 0
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.seq
+}
+
+// removeLocked is the only place a subscriber channel is closed, so a
+// disconnect followed by cancel can never close it twice. Caller holds mu.
+func (s *Stream) removeLocked(id int) {
+	if ch, ok := s.subs[id]; ok {
+		delete(s.subs, id)
+		close(ch)
+	}
 }
