@@ -12,7 +12,7 @@ import (
 )
 
 // serveWS is provided: connection lifecycle, query parsing, and the wire
-// chaos knobs. The one hole in it is marked TASK 4 below.
+// chaos knobs. A resume the buffer cannot serve starts with a gapFrame.
 //
 //	GET /ws?run_id=r-1&resume_from=41
 //
@@ -53,19 +53,13 @@ func (s *Server) serveWS(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if gap {
-		// -------------------------------------------------------------------
-		// TASK 4. The client asked to resume from a position the buffer no
-		// longer holds, so some of the run happened and nobody can replay it.
-		//
-		// Sending nothing here is the same as pretending it did not happen:
-		// the socket simply goes live, the client carries on from the next
-		// event, and a failure and its retry are missing from the timeline
-		// with nothing to say so. It looks correct and it is not.
-		//
-		// Decide what the client is told, and make sure the client can tell
-		// this apart from a clean resume. The shape is yours.
-		// -------------------------------------------------------------------
-		_ = gap
+		// Some of the run happened and nobody can replay it. Say so before the
+		// replay, so the client never mistakes this for a clean resume. When
+		// there is a gap the backlog is everything held, so it is never empty.
+		notice := gapFrame{Type: "gap", From: resumeFrom, Earliest: backlog[0].Seq}
+		if err := writeFrame(ctx, conn, notice); err != nil {
+			return
+		}
 	}
 
 	for _, e := range backlog {
@@ -121,8 +115,21 @@ func (s *Server) writeWithChaos(ctx context.Context, conn *websocket.Conn, e Eve
 	return nil
 }
 
+// gapFrame tells a resuming client that events between From and Earliest were
+// evicted before it came back. It is the only non-event frame on the wire.
+type gapFrame struct {
+	Type     string `json:"type"`     // always "gap"
+	From     uint64 `json:"from"`     // the resume_from the client asked for
+	Earliest uint64 `json:"earliest"` // the oldest seq still held; the replay starts here
+}
+
 func writeEvent(ctx context.Context, conn *websocket.Conn, e Event) error {
-	b, err := json.Marshal(e)
+	return writeFrame(ctx, conn, e)
+}
+
+// writeFrame sends any JSON frame. (writeJSON is the HTTP helper in http.go.)
+func writeFrame(ctx context.Context, conn *websocket.Conn, v any) error {
+	b, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}
