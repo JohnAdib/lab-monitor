@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import {
   applyEvent,
+  applySnapshot,
   createRunState,
   selectFailures,
 } from '../../src/lib/runState'
@@ -56,6 +57,33 @@ describe('failures: what still needs action', () => {
       stepEvent(1, 'step.failed', 'a', 1, { error: fault() }),
     ])
     expect(selectFailures(s).active.map((a) => a.stepId)).toEqual(['a', 'b'])
+  })
+
+  test('a failure the snapshot reported without an end time is listed first', () => {
+    const eventFirst = applyEvent(
+      createRunState(),
+      stepEvent(1, 'step.failed', 'a', 1, { error: fault() }),
+    )
+    const s = applySnapshot(eventFirst, {
+      seq: 0,
+      run: {
+        id: 'r-1',
+        status: 'blocked',
+        steps: [
+          {
+            id: 'z',
+            device_id: 'incubator-1',
+            depends_on: null,
+            status: 'failed',
+            attempt: 1,
+            started_at: null,
+            ended_at: null,
+            error: fault(),
+          },
+        ],
+      },
+    })
+    expect(selectFailures(s).active.map((a) => a.stepId)).toEqual(['z', 'a'])
   })
 
   test('a run with no failures has nothing to show', () => {

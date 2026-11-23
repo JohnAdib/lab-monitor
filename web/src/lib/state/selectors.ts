@@ -53,7 +53,7 @@ export function selectFailures(state: RunState): {
   }
   const failed = Object.values(state.attempts)
     .filter((a) => a.status === 'failed')
-    .sort((x, y) => x.endedAt! - y.endedAt!)
+    .sort((x, y) => endOf(x) - endOf(y))
   return {
     active: failed.filter((a) => latest.get(a.stepId) === a),
     resolved: failed
@@ -61,6 +61,9 @@ export function selectFailures(state: RunState): {
       .map((a) => ({ failed: a, retry: latest.get(a.stepId)! })),
   }
 }
+
+/** A failure reported without an end time sorts first rather than vanishing. */
+const endOf = (a: Attempt) => a.endedAt ?? 0
 
 function byStart(x: Attempt, y: Attempt): number {
   const sx = x.startedAt ?? Infinity
