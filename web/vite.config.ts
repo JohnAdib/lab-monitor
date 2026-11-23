@@ -18,7 +18,12 @@ export default defineConfig({
         'src/hooks/**',
         'src/components/failures/**',
       ],
-      thresholds: { lines: 100, branches: 100, functions: 100, statements: 100 },
+      thresholds: {
+        lines: 100,
+        branches: 100,
+        functions: 100,
+        statements: 100,
+      },
     },
   },
 })
