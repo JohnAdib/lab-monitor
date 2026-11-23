@@ -1,0 +1,6 @@
+simulator/simulator
+
+node_modules/
+web/test-results/
+web/playwright-report/
+web/dist/
