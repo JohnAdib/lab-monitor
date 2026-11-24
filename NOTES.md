@@ -4,92 +4,69 @@
 the pieces connect and how the lab works, then several rounds of back-and-forth
 with AI to build and check it.
 
-## How it fits together
+## How it works
 
-- The browser loads the snapshot, then opens the socket with `resume_from` set to the
-  snapshot's `seq`.
-- The server replays what the client missed, then goes live.
-- If the missed events were evicted, the server first sends
-  `{type: "gap", from, earliest}`.
+- The browser loads the snapshot, then opens the socket with `resume_from` set to
+  its `seq`. The server replays what was missed, then goes live. If those events
+  were evicted, it first sends `{type: "gap", from, earliest}`.
+- Events apply on arrival and merge order-free: a field, once reported, is kept,
+  and status only moves forward. Sequence tracking is separate, and the client
+  resumes from its last *contiguous* seq, so a lost event never freezes the screen.
+- A viewer that stops reading is disconnected, never blocked on. It reconnects and
+  resumes.
 
-What the banner says, from most to least serious:
-
-| Status | When | Shown to the user |
-| --- | --- | --- |
-| `gap` | The server said events were evicted (sticky; a reconnect does not clear it) | Red: which events were lost |
-| `stale` | Socket closed, or an event is missing (more than 5 later events, or a run-level event, arrived after it) | Amber: disconnected, or which event is missing |
-| `connecting` | A run exists but the socket has not opened yet | Grey |
-| `live` | Socket open and nothing missing | No banner |
-
-The retry endpoint, `POST /runs/{id}/steps/{step}/retry`, gives one body shape for
-every answer:
-
-| Code | `error` | Meaning |
-| --- | --- | --- |
-| 202 | – | Queued. `attempt` is the attempt it will run. Accepted, not done: only events confirm it |
-| 404 | `unknown_step` | No such step (or run) |
-| 409 | `not_failed` | `status`/`attempt` say what the step is doing now. `pending` means a retry is already queued, so repeating a call is safe |
-| 422 | `not_retryable` | `fault` holds the instrument's reason. Retrying will not help |
-
-## 1. What I deliberately did not build, and why
-
-| Not built | Why |
+| Banner | When |
 | --- | --- |
-| History beyond the replay buffer | The brief asks that loss be admitted, not prevented. The gap frame and red banner do that |
-| Time-based detection of a lost event | It would need a clock in the reducer. Counting keeps it pure and testable |
-| Changes to the provided timeline | A bar whose `finished` fell in a gap can run into the next bar on its lane. I would not invent an end time; the right fix is visual (fade it once the next attempt starts) |
-| Fixes to the chaos knobs in `ws.go` | The shared reorder queue can mix runs and strand the last event. It simulates a network, so I left it. The client ignores other runs' events |
-| Bar click-through, "copy details", run history, auth | Useful, but none changes whether a scientist can understand a failure and act on it |
+| `gap` (red) | The server said events were evicted. Sticky across reconnects |
+| `stale` (amber) | Socket closed, or an event is missing and either more than 5 later events or a run-level event have arrived |
+| `connecting` | A run exists but the socket is not open yet |
+| `live` | No banner |
 
-## 2. Where the state layer is most likely to break
-
-- **A quiet stream after a lost event.** With fewer than 5 events after it and no
-  run-level event, the screen stays live until more arrive.
-- **Snapshots only hold each step's current attempt.** After a reload, an earlier
-  failed attempt that was retried is gone.
-- **A simulator restart.** It reuses run ids and restarts `seq`. Pressing Start
-  always opens a fresh stream (found by testing, fixed test-first). A page left open
-  across a restart can still attach to a new run with the same id and drop its early
-  events as duplicates. There is no stream epoch to tell them apart.
-- **Validation is shape-only.** A well-formed event with a wrong `at` is drawn
-  where it says.
-
-## 3. An event arrives for a step I have never seen
-
-If it has the full event shape and belongs to the current run, it becomes a new
-attempt (`stepId#attempt`) and is merged like any other. I trust what the instrument
-reported over the workflow I expected.
-
-| Case | Result |
+| Retry answer | Meaning |
 | --- | --- |
-| Known device | Drawn on that device's lane |
-| Unknown device | Kept in the state with no lane to draw on. If it fails, it still shows in the failure panel |
-| Malformed frame, or another run's event | Ignored; the state is unchanged |
+| 202 | Queued; `attempt` is the attempt it will run. Only events confirm it |
+| 404 `unknown_step` | No such step. An unknown run returns the starter's `{"error":"no such run"}` |
+| 409 `not_failed` | `status` and `attempt` say what the step is doing. `pending` with attempt ≥ 1 means a retry is already queued |
+| 422 `not_retryable` | `fault` holds the instrument's reason |
 
-## 4. Before an integrator builds on the event contract and the endpoint
+On screen, a 202 shows "waiting for the instrument to start attempt N", and only
+the stream clears the card. A failure that was retried, or overtaken by a completed
+run, is history. When retrying cannot help, the card explains that the run cannot
+continue and the cause must be fixed first.
+
+## 1. What I did not build
+
+- **History beyond the buffer.** The brief asks that loss be admitted, not prevented.
+- **Time-based hole detection.** It needs a clock in the reducer. Counting keeps it
+  pure.
+- **Timeline changes.** A bar whose `finished` fell in a gap can run into the next
+  bar on its lane. I would not invent an end time.
+- **Bar click-through, run history, auth.** None of them changes whether a
+  scientist can act on a failure.
+
+## 2. Where the state layer breaks
+
+- **A hole with 5 or fewer events after it and no run-level event** stays "live".
+- **Snapshots hold only each step's current attempt,** so an earlier failure can
+  be missing after a reload.
+- **A page left open across a simulator restart** can attach to a new run with the
+  same id and drop its early events. There is no stream epoch.
+
+## 3. An event for a step I have never seen
+
+If it is well formed and from this run, it becomes a new attempt and is drawn on
+its device's lane. On an unknown device it has no lane, but a failure there still
+shows in the failure panel. Malformed frames and other runs' events are ignored.
+
+## 4. Before an integrator builds on it
 
 | Change | Leave alone |
 | --- | --- |
 | Document the gap frame and add it to the types | `seq` monotonic per run |
-| Add a stream id or epoch next to `seq` | `at` as wall-clock time |
+| Add a stream epoch next to `seq` | `at` as wall-clock time |
 | Put `step_id` on `run.blocked` | `retryable` as the instrument's call |
-| An optional `expected_attempt` on retry, so a delayed duplicate cannot claim a later failure | The open `context` map |
-| Publish the list of `error.code` values | One response shape for every retry answer |
-
-## Design decisions
-
-- **Order-free merge.** Events apply on arrival and merge order-free: a field, once
-  reported, is kept, and status only moves forward. Sequence tracking is separate.
-  A lost event never freezes the screen and is never hidden.
-- **Resuming.** The client resumes from its last *contiguous* seq, so a reconnect
-  also asks for the missing event.
-- **Slow viewers.** A viewer that stops reading is disconnected, never blocked on and
-  never silently skipped. It reconnects and resumes.
-- **The retry claim.** Retryability is decided under the same lock as the claim. A
-  failure without error detail stays retryable; only `retryable: false` is refused.
-- **The failure screen.** The 202 shows "waiting for the instrument to start attempt
-  N", and only the stream clears the card. A retried failure is history, not a call
-  to action. When retrying cannot help, the card gives guidance instead of a button.
+| Optional `expected_attempt` on retry | The open `context` map |
+| One error shape, run 404 included | One response shape for retry |
 
 ## Feedback on the exercise
 
