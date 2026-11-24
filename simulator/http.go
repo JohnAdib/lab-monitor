@@ -15,7 +15,6 @@ type Server struct {
 	order    []string
 	streams  map[string]*Stream // one per run: a viewer of r-1 must not see r-2
 	cfg      Config
-	held     []Event
 	openFrom time.Time // SOCKET_REJECT_MS: refuse sockets until this moment
 }
 
@@ -68,7 +67,7 @@ func (s *Server) listRuns(w http.ResponseWriter, _ *http.Request) {
 	s.mu.Lock()
 	out := make([]map[string]string, 0, len(s.order))
 	for _, id := range s.order {
-		out = append(out, map[string]string{"id": id, "status": s.runs[id].Status})
+		out = append(out, map[string]string{"id": id, "status": s.runs[id].status()})
 	}
 	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]any{"runs": out})

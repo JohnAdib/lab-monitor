@@ -67,6 +67,7 @@ func (s *Server) serveWS(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 	}
+	var held []Event // per socket: the reorder queue must not mix viewers
 	for {
 		select {
 		case <-ctx.Done():
@@ -81,7 +82,7 @@ func (s *Server) serveWS(w http.ResponseWriter, req *http.Request) {
 			if !ok {
 				return
 			}
-			if err := s.writeWithChaos(ctx, conn, e); err != nil {
+			if err := s.writeWithChaos(ctx, conn, e, &held); err != nil {
 				return
 			}
 		}
@@ -90,15 +91,16 @@ func (s *Server) serveWS(w http.ResponseWriter, req *http.Request) {
 
 // writeWithChaos applies DUPLICATE_PCT and REORDER_PCT on the wire, after
 // sequence numbers have been assigned. It models a lossy network, not a bug in
-// anyone's code, which is why it lives here and not in stream.go.
-func (s *Server) writeWithChaos(ctx context.Context, conn *websocket.Conn, e Event) error {
+// anyone's code, which is why it lives here and not in stream.go. queue holds
+// this socket's reordered events.
+func (s *Server) writeWithChaos(ctx context.Context, conn *websocket.Conn, e Event, queue *[]Event) error {
 	if s.cfg.ReorderPct > 0 && rand.Intn(100) < s.cfg.ReorderPct {
-		s.held = append(s.held, e)
-		if len(s.held) < 2 {
+		*queue = append(*queue, e)
+		if len(*queue) < 2 {
 			return nil
 		}
-		held := s.held
-		s.held = nil
+		held := *queue
+		*queue = nil
 		for i := len(held) - 1; i >= 0; i-- { // release backwards
 			if err := writeEvent(ctx, conn, held[i]); err != nil {
 				return err

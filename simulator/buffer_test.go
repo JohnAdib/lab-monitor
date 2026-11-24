@@ -31,7 +31,9 @@ func TestReplayBuffer_Since_ReturnsOnlyLaterEvents(t *testing.T) {
 	}
 }
 
-func TestReplayBuffer_Since_ReturnsACopyTheCallerCannotCorrupt(t *testing.T) {
+// The slice is new; the events in it share their error context with the buffer,
+// which is fine because nothing mutates an event once it is published.
+func TestReplayBuffer_Since_ReturnsANewSliceNotTheBuffersOwn(t *testing.T) {
 	b := filled(8, 2)
 	b.since(0)[0].Seq = 99
 	if got := b.since(0)[0].Seq; got != 1 {

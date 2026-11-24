@@ -1,5 +1,13 @@
 package main
 
+// status reads Run.Status under Mu, which guards every write to it (the
+// engine settling, and ClaimRetry unblocking).
+func (r *Run) status() string {
+	r.Mu.Lock()
+	defer r.Mu.Unlock()
+	return r.Status
+}
+
 // retryOutcome is what ClaimRetry decided. The HTTP layer maps it to a status
 // code; the decision itself lives here so it is made under one lock.
 type retryOutcome int

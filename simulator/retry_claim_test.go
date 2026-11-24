@@ -3,12 +3,15 @@ package main
 import (
 	"sync"
 	"testing"
+	"time"
 )
 
 func failedRun(retryable bool) *Run {
 	r := NewRun("r-1", defaultWorkflow, NewStream(8), "")
 	s := r.Steps["warm_reagent_plate"]
+	start, end := time.Now(), time.Now()
 	s.Status, s.Attempt = StatusFailed, 1
+	s.StartedAt, s.EndedAt = &start, &end // a real failure has both, so clearing them is tested
 	s.Error = &StepError{Code: "X", Retryable: retryable}
 	return r
 }
