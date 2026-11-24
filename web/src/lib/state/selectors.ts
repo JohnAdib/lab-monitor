@@ -37,11 +37,13 @@ export function selectTracks(state: RunState): Track[] {
 
 export interface ResolvedFailure {
   failed: Attempt
-  retry: Attempt
+  /** The attempt that followed, or null when the run completed without us
+   *  seeing one (e.g. it fell in a gap). */
+  retry: Attempt | null
 }
 
-/** active: the step's latest attempt failed, so someone has to act.
- *  resolved: a failed attempt that a later attempt has already replaced. */
+/** active: the step's latest attempt failed and the run has not completed, so
+ *  someone has to act. resolved: everything else that failed. */
 export function selectFailures(state: RunState): {
   active: Attempt[]
   resolved: ResolvedFailure[]
@@ -54,11 +56,18 @@ export function selectFailures(state: RunState): {
   const failed = Object.values(state.attempts)
     .filter((a) => a.status === 'failed')
     .sort((x, y) => endOf(x) - endOf(y))
+  const completed = state.runStatus === 'completed'
+  const isActive = (a: Attempt) => !completed && latest.get(a.stepId) === a
+  const followedBy = (a: Attempt) => {
+    const last = latest.get(a.stepId)!
+    const next = state.attempts[`${a.stepId}#${a.attempt + 1}`]
+    return next ?? (last === a ? null : last)
+  }
   return {
-    active: failed.filter((a) => latest.get(a.stepId) === a),
+    active: failed.filter(isActive),
     resolved: failed
-      .filter((a) => latest.get(a.stepId) !== a)
-      .map((a) => ({ failed: a, retry: latest.get(a.stepId)! })),
+      .filter((a) => !isActive(a))
+      .map((a) => ({ failed: a, retry: followedBy(a) })),
   }
 }
 

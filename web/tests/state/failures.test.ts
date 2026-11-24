@@ -28,7 +28,7 @@ describe('failures: what still needs action', () => {
     expect(active).toEqual([])
     expect(resolved).toHaveLength(1)
     expect(resolved[0]!.failed.attempt).toBe(1)
-    expect(resolved[0]!.retry.status).toBe('running')
+    expect(resolved[0]!.retry?.status).toBe('running')
   })
 
   test('a retry that also failed leaves only the latest failure active', () => {

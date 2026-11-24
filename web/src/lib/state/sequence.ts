@@ -27,6 +27,11 @@ export function advanceTo(s: Sequence, seq: number): Sequence {
   return consume({ ...s, last, ahead: s.ahead.filter((n) => n > last) })
 }
 
+/** How many seqs between `last` and `before` (exclusive) were never applied. */
+export function missingBefore(s: Sequence, before: number): number {
+  return before - 1 - s.last - s.ahead.filter((n) => n < before).length
+}
+
 export function holeOpen(s: Sequence): boolean {
   return s.ahead.length > HOLE_TOLERANCE || s.settleAt > s.last
 }

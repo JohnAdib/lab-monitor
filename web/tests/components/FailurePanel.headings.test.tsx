@@ -37,6 +37,21 @@ describe('FailurePanel: headings and history wording', () => {
     )
   })
 
+  test('a retry still waiting for a busy device says so, not "dispatched"', () => {
+    show([failedStep(1, 'a'), stepEvent(2, 'step.refused', 'a', 2)])
+    expect(screen.getByRole('listitem').textContent).toBe(
+      'a attempt 1 failed (SETPOINT_NOT_REACHED) — retried as attempt 2, waiting for the device',
+    )
+  })
+
+  test('a failure whose retry was missed reads as overtaken once the run completed', () => {
+    show([failedStep(1, 'a'), runEvent(9, 'run.completed')])
+    expect(screen.queryByTestId('failure-card')).toBeNull()
+    expect(screen.getByRole('listitem').textContent).toBe(
+      'a attempt 1 failed (SETPOINT_NOT_REACHED) — the run completed afterwards',
+    )
+  })
+
   test('a retried failure with no error code does not show empty brackets', () => {
     show([
       stepEvent(1, 'step.failed', 'a'),

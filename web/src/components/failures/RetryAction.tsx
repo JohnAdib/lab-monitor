@@ -14,8 +14,8 @@ export function RetryAction({ runId, stepId, retryable }: Props) {
     return (
       <p role="note" className="text-sm text-slate-700">
         Retrying will not help: the instrument reports this fault will happen
-        again. Fix the cause at the instrument (see the details above). The run
-        stays blocked until this step can complete.
+        again, so this run cannot continue from here. Fix the cause at the
+        instrument (see the details above), then start a new run.
       </p>
     )
   }

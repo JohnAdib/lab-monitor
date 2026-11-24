@@ -26,9 +26,12 @@ describe('RetryAction', () => {
   })
 
   test('while sending, the button is disabled so a double click cannot fire twice', () => {
+    vi.mocked(requestRetry).mockClear()
     vi.mocked(requestRetry).mockReturnValue(new Promise(() => {}))
     render(<RetryAction runId="r-1" stepId="warm" retryable />)
     fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(screen.getByRole('button'))
+    expect(requestRetry).toHaveBeenCalledOnce()
     expect(screen.getByRole('button').hasAttribute('disabled')).toBe(true)
     expect(screen.getByRole('button').textContent).toBe('Sending…')
   })

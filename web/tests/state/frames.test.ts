@@ -34,6 +34,7 @@ describe('frames: what is a lab event', () => {
       'a step event without device_id',
       { ...stepEvent(1, 'step.started'), device_id: undefined },
     ],
+    ['a step event with attempt 0', stepEvent(1, 'step.started', 'warm', 0)],
   ])('%s is not a lab event', (_, frame) => {
     expect(isLabEvent(frame)).toBe(false)
   })
@@ -49,6 +50,11 @@ describe('frames: what is a gap frame', () => {
     ['a lab event', runEvent(1, 'run.completed')],
     ['a gap without earliest', { type: 'gap', from: 10 }],
     ['a gap with a string from', { type: 'gap', from: '10', earliest: 40 }],
+    [
+      'a gap with a fractional earliest',
+      { type: 'gap', from: 1, earliest: 2.5 },
+    ],
+    ['a gap with a negative from', { type: 'gap', from: -1, earliest: 4 }],
   ])('%s is not a gap frame', (_, frame) => {
     expect(isGapFrame(frame)).toBe(false)
   })

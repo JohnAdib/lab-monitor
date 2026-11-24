@@ -1,12 +1,18 @@
 // The state layer's public API: everything the screen shows comes from here.
-// Events are applied on arrival and merged order-free (state/attempts.ts);
-// which seqs were seen is tracked apart (state/sequence.ts), so a lost event
-// neither freezes the screen nor goes unreported.
+// Events apply on arrival and merge order-free (state/attempts.ts); seen seqs
+// are tracked apart (state/sequence.ts), so a lost event never freezes the screen.
 import type { LabEvent, Snapshot, StepError } from './types'
 import { withEvent, withSnapshotStep } from './state/attempts'
 import { isGapFrame, isLabEvent } from './state/frames'
 import type { GapFrame } from './state/frames'
-import { advanceTo, emptySequence, isNew, record } from './state/sequence'
+import {
+  advanceTo,
+  emptySequence,
+  isNew,
+  missingBefore,
+  record,
+} from './state/sequence'
+import { runStatusAfter } from './state/runStatus'
 import type { RunState } from './state/model'
 
 export type {
@@ -70,7 +76,7 @@ export function applyEvent(state: RunState, e: LabEvent): RunState {
     ...state,
     runId: e.run_id,
     ...(e.seq > state.statusSeq && {
-      runStatus: runStatusAfter(e),
+      runStatus: runStatusAfter(state.runStatus, e),
       statusSeq: e.seq,
     }),
     attempts: withEvent(state.attempts, e),
@@ -88,12 +94,7 @@ export function applyTransport(
 
 function applyGap(state: RunState, g: GapFrame): RunState {
   if (g.earliest - 1 <= state.seq.last) return state // already past it
-  const lostNote = `Events ${g.from + 1}–${g.earliest - 1} were lost while disconnected. This record is incomplete.`
+  const n = missingBefore(state.seq, g.earliest) // events that arrived early do not count
+  const lostNote = `${n} ${n === 1 ? 'event' : 'events'} before #${g.earliest} ${n === 1 ? 'was' : 'were'} lost while disconnected. This record is incomplete.`
   return { ...state, lostNote, seq: advanceTo(state.seq, g.earliest - 1) }
-}
-
-function runStatusAfter(e: LabEvent): string {
-  if (e.type === 'run.completed') return 'completed'
-  if (e.type === 'run.blocked') return 'blocked'
-  return 'running'
 }

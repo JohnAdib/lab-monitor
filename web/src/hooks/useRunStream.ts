@@ -32,13 +32,16 @@ export function useRunStream(run: WatchedRun | null): RunState {
   useEffect(() => {
     if (!run) return
     const runId = run.id
+    // A closed socket still fires onClose (and can deliver a last frame) after
+    // we have moved on to another run; those must not touch the new run's state.
+    const alive = { current: true }
     const apply = (next: (s: RunState) => RunState) => {
+      if (!alive.current) return
       latest.current = next(latest.current)
       setState(latest.current)
     }
     apply(() => createRunState())
 
-    const alive = { current: true }
     let close = () => {}
     void (async () => {
       const snap = await fetchSnapshot(runId).catch(() => null)

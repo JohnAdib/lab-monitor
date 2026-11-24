@@ -19,6 +19,7 @@ export async function listRuns(): Promise<{ id: string; status: string }[]> {
 
 export async function fetchSnapshot(id: string): Promise<Snapshot> {
   const r = await fetch(`${BASE}/runs/${id}`)
+  if (!r.ok) throw new Error(`snapshot failed: HTTP ${r.status}`)
   return (await r.json()) as Snapshot
 }
 

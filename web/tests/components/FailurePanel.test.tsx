@@ -56,6 +56,8 @@ describe('FailurePanel', () => {
     show([failed(1, fault({ retryable: false }))])
     expect(screen.queryByRole('button')).toBeNull()
     expect(screen.getByRole('note').textContent).toMatch(/retrying will not/i)
+    // Retry refuses this fault for good, so the run cannot continue from here.
+    expect(screen.getByRole('note').textContent).toMatch(/start a new run/i)
   })
 
   test('a failure that was retried moves to history and is no longer actionable', () => {

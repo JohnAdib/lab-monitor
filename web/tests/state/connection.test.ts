@@ -61,7 +61,7 @@ describe('connection: the server says events are gone', () => {
       status: 'gap',
       lastSeq: 4,
     })
-    expect(selectConnection(lost()).note).toContain('2–4')
+    expect(selectConnection(lost()).note).toContain('3 events before #5')
   })
 
   test('a gap stays reported when the socket closes', () => {

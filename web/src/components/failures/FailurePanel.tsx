@@ -1,7 +1,7 @@
 // Where failures live: below the timeline, actionable ones first. A failure
 // that has already been retried is history, not a call to action.
 import { selectFailures, selectRunStatus } from '../../lib/runState'
-import type { ResolvedFailure, RunState } from '../../lib/runState'
+import type { Attempt, ResolvedFailure, RunState } from '../../lib/runState'
 import { FailureCard } from './FailureCard'
 
 export function FailurePanel({
@@ -44,6 +44,14 @@ function heading(count: number, blocked: boolean): string {
 }
 
 function history({ failed, retry }: ResolvedFailure): string {
-  const code = failed.error ? ` (${failed.error.code})` : ''
-  return `${failed.stepId} attempt ${failed.attempt} failed${code} — retried as attempt ${retry.attempt}, ${retry.status}`
+  const what = `${failed.stepId} attempt ${failed.attempt} failed${failed.error ? ` (${failed.error.code})` : ''}`
+  if (!retry) return `${what} — the run completed afterwards`
+  return `${what} — retried as attempt ${retry.attempt}, ${progress(retry)}`
 }
+
+/** A retry refused by a busy device has not been sent yet; "dispatched" would
+ *  claim it had. */
+const progress = (a: Attempt) =>
+  a.refused && a.startedAt === null && a.status === 'dispatched'
+    ? 'waiting for the device'
+    : a.status
