@@ -6,6 +6,7 @@ import { FailurePanel } from '../components/failures/FailurePanel'
 import { Timeline } from '../pages/Timeline'
 import { useNow } from '../hooks/useNow'
 import { useRunStream } from '../hooks/useRunStream'
+import type { WatchedRun } from '../hooks/useRunStream'
 import { createRun, startRun } from '../lib/api'
 import {
   selectConnection,
@@ -14,13 +15,14 @@ import {
 } from '../lib/runState'
 
 export function RunPage() {
-  const [runId, setRunId] = useState<string | null>(null)
-  const state = useRunStream(runId)
+  const [run, setRun] = useState<WatchedRun | null>(null)
+  const state = useRunStream(run)
   const now = useNow(250) // the clock a running bar is drawn against
+  const runId = run?.id ?? null
 
   const onStart = useCallback(async () => {
     const id = await createRun()
-    setRunId(id)
+    setRun({ id })
     await startRun(id)
   }, [])
 

@@ -28,8 +28,8 @@ beforeEach(() => {
 })
 
 const mount = async (runId: string | null = 'r-1') => {
-  const hook = renderHook(({ id }) => useRunStream(id), {
-    initialProps: { id: runId },
+  const hook = renderHook(({ run }) => useRunStream(run), {
+    initialProps: { run: runId === null ? null : { id: runId } },
   })
   await act(async () => {})
   return hook
@@ -77,10 +77,23 @@ describe('useRunStream', () => {
   test('a new run closes the old socket and starts from a clean state', async () => {
     const { result, rerender } = await mount('r-1')
     act(() => handlers.onMessage(stepEvent(13, 'step.started')))
-    rerender({ id: 'r-2' })
+    rerender({ run: { id: 'r-2' } })
     await act(async () => {})
     expect(close).toHaveBeenCalledOnce()
     expect(result.current.runId).toBe('r-2')
     expect(Object.keys(result.current.attempts)).toEqual([])
+  })
+
+  // A restarted simulator numbers runs from r-1 again. Keeping the old socket
+  // would merge the previous run's bars into the new one.
+  test('a new run that reuses the same id still gets a fresh stream', async () => {
+    const { result, rerender } = await mount('r-1')
+    act(() => handlers.onMessage(stepEvent(13, 'step.started')))
+    rerender({ run: { id: 'r-1' } })
+    await act(async () => {})
+    expect(close).toHaveBeenCalledOnce()
+    expect(fetchSnapshot).toHaveBeenCalledTimes(2)
+    expect(Object.keys(result.current.attempts)).toEqual([])
+    expect(handlers.resumeFrom()).toBe(12)
   })
 })

@@ -32,9 +32,12 @@
   run-level event, the screen stays "live" until more arrive.
 - **The snapshot only holds each step's current attempt.** After a reload, an earlier
   failed attempt that was retried is gone from the screen.
-- **A simulator restart.** It resets `seq` to 1, but a client still holding
-  `lastSeq = 40` treats the new events as duplicates. The stream has no epoch or id
-  to say "this is a new stream".
+- **A simulator restart.** It reuses run ids (`r-1` again) and restarts `seq` at 1.
+  Pressing Start always opens a fresh stream, so that case is handled (I found it by
+  testing and fixed it test-first). A page left open across the restart is not: its
+  reconnect loop can attach to a *new* `r-1` with a stale `lastSeq` and drop the new
+  run's early events as duplicates. The stream has no epoch or id to say "this is a
+  new stream".
 - **Event validation is shape-only.** A well-formed event with a wrong `at` (a
   timestamp from the past) is drawn where it says.
 
