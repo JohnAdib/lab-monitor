@@ -79,3 +79,4 @@ problem.
 Claude Code, working test-first (TDD), with Codex as an advisor. I used AI to
 understand the code structure, then to write the tests for each fix, then the fix
 itself, then a final round of polish.
+My prompts are in `ai/prompts.md`.
