@@ -21,6 +21,7 @@ export default [
       'dist',
       'test-results',
       'playwright-report',
+      'coverage',
     ],
   },
 ]
