@@ -49,7 +49,7 @@ export function RunPage() {
         </button>
       </header>
 
-      <Banner connection={selectConnection(state)} />
+      {runId && <Banner connection={selectConnection(state)} />}
 
       <Timeline tracks={tracks} now={now} t0={t0} />
 
