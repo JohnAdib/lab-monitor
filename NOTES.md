@@ -6,21 +6,11 @@ with AI to build and check it.
 
 ## How it fits together
 
-```mermaid
-sequenceDiagram
-    participant B as Browser (useRunStream)
-    participant S as Simulator
-    B->>S: GET /runs/{id}
-    S-->>B: snapshot + seq (watermark)
-    B->>S: WS /ws?resume_from=seq
-    alt events after seq still in the buffer
-        S-->>B: replay of missed events, then live events
-    else some were evicted
-        S-->>B: {type: "gap", from, earliest}
-        S-->>B: replay from earliest, then live events
-    end
-    Note over B: dedupe by seq, merge order-free,<br/>resume from last contiguous seq
-```
+- The browser loads the snapshot, then opens the socket with `resume_from` set to the
+  snapshot's `seq`.
+- The server replays what the client missed, then goes live.
+- If the missed events were evicted, the server first sends
+  `{type: "gap", from, earliest}`.
 
 What the banner says, from most to least serious:
 
@@ -109,5 +99,6 @@ problem.
 
 ## AI use
 
-Built with Claude Code, test-first, with a second model (Codex CLI) reviewing the
-plan. The full conversation export is in `ai/`; only my email address was removed.
+Claude Code, working test-first (TDD), with Codex as an advisor. I used AI to
+understand the code structure, then to write the tests for each fix, then the fix
+itself, then a final round of polish.
