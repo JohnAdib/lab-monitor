@@ -5,3 +5,20 @@ web/test-results/
 web/playwright-report/
 web/dist/
 web/coverage/
+
+# Go (GitHub template)
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.html
+coverage.txt
+coverage.xml
+*.coverprofile
+profile.cov
+go.work
+go.work.sum
+.env
