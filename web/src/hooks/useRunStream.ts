@@ -10,6 +10,12 @@ import {
 } from '../lib/runState'
 import type { RunState } from '../lib/runState'
 
+/** The run being watched. A new object per Start: a restarted simulator
+ *  reuses ids, and the same id must still get a fresh stream. */
+export interface WatchedRun {
+  id: string
+}
+
 /**
  * Live state for one run: load the snapshot, then subscribe from where it sits.
  *
@@ -17,14 +23,15 @@ import type { RunState } from '../lib/runState'
  * ask to resume from 0, and with a small replay buffer the server would
  * rightly answer that the start of the run is gone.
  */
-export function useRunStream(runId: string | null): RunState {
+export function useRunStream(run: WatchedRun | null): RunState {
   const [state, setState] = useState(createRunState)
   // The socket asks where to resume on every attempt; the ref always holds the
   // latest state, even between a frame arriving and React re-rendering.
   const latest = useRef(state)
 
   useEffect(() => {
-    if (!runId) return
+    if (!run) return
+    const runId = run.id
     const apply = (next: (s: RunState) => RunState) => {
       latest.current = next(latest.current)
       setState(latest.current)
@@ -48,7 +55,7 @@ export function useRunStream(runId: string | null): RunState {
       alive.current = false
       close()
     }
-  }, [runId])
+  }, [run])
 
   return state
 }
